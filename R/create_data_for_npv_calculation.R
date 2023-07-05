@@ -56,23 +56,25 @@ df_ind <- df_iso3 %>% filter(region == "IND") %>% mutate(modelscenario = paste0(
 
 # check what key variables are available for which model-scenario pairing
 df_variablecheck <- df_ind %>% group_by(model, scenario, modelscenario) %>%
-  summarise(has_secondary = "Secondary Energy|Electricity|Coal" %in% variable,
+  summarise(has_generation = "Secondary Energy|Electricity|Coal" %in% variable,
             has_price = "Price|Primary Energy|Coal" %in% variable,
             has_capacity = "Capacity|Electricity|Coal" %in% variable,
+            has_coaluse = "Primary Energy|Coal|Electricity" %in% variable,
             has_om = "OM Cost|Fixed|Electricity|Coal|w/o CCS" %in% variable,
-            has_carbonprice = "Price|Carbon" %in% variable
+            has_carbonprice = "Price|Carbon" %in% variable,
+            has_electricityprice = "Price|Secondary Energy|Electricity" %in% variable
             ) %>%
   mutate(is_vetted = modelscenario %in% df_meta$modelscenario)
 
 # plot available number of scenarios per model
-df_variablecheck %>% filter(has_secondary & has_price & has_capacity & has_om & has_carbonprice) %>%
+df_variablecheck %>% filter(has_generation & has_price & has_capacity & has_coaluse & has_om & has_carbonprice & has_electricityprice) %>%
   count(model, is_vetted) %>%
   ggplot(aes(reorder(model, n), n)) + geom_col(aes(fill = is_vetted)) + coord_flip() +
-  labs(subtitle = "Model with coal price, generation, capacity, OM & carbon price", x = NULL, y = "# of model-scenario pairs in AR6 Database") +
+  labs(subtitle = "Model with coal price, generation, capacity, OM, electricity & carbon price", x = NULL, y = "# of model-scenario pairs in AR6 Database") +
   theme(legend.position = "bottom")
 
 # define what model scenarios we use (due to data availabilibility & mapping)
-modelscenario_ind_used <- df_variablecheck %>% filter(has_secondary & has_price & has_capacity & has_om & has_carbonprice & is_vetted) %>%
+modelscenario_ind_used <- df_variablecheck %>% filter(has_generation & has_price & has_capacity & has_coaluse & has_om & has_carbonprice & has_electricityprice & is_vetted) %>%
   pull(modelscenario)
 
 # create the actual database by interpolating
@@ -81,7 +83,8 @@ df <- df_ind %>% filter(modelscenario %in% modelscenario_ind_used) %>%
   left_join(df_meta %>% select(modelscenario, category, policy_category), by = "modelscenario") %>%
   # subset to the variables of interest
   filter(variable %in% c("Secondary Energy|Electricity|Coal", "Price|Primary Energy|Coal", "Capacity|Electricity|Coal",
-                         "OM Cost|Fixed|Electricity|Coal|w/o CCS", "Price|Carbon")) %>%
+                         "OM Cost|Fixed|Electricity|Coal|w/o CCS", "Price|Carbon", "Primary Energy|Coal|Electricity",
+                         "Price|Secondary Energy|Electricity")) %>%
   # convert to long format (one row per model-scenario-year-variable pairing)
   pivot_longer(cols = starts_with("x"), values_to = "value", names_to = "year") %>%
   # clean up the year column
@@ -101,5 +104,14 @@ df %>% count(variable, unit) %>% print()
 df <- df %>% select(-value, -modelscenario, -unit) %>%  pivot_wider(values_from = "value_interpolated", names_from = "variable") %>%
   clean_names()
 
-# export this 
+# add policy category in a coarse way based on regex detection
+df <- df %>% mutate(policy_category_coarse = case_when(str_detect(policy_category, "^P0") ~ "Diagnostics",
+                                                       str_detect(policy_category, "^P1") ~ "Baseline",
+                                                       str_detect(policy_category, "^P2") ~ "Immediate action",
+                                                       str_detect(policy_category, "^P3") ~ "Delayed action",
+                                                       TRUE ~ NA_character_
+))
+
+
+# export the data frame as a CSV file
 write_csv(df, file.path("data", "df_india.csv"))
