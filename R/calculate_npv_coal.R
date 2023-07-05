@@ -1,11 +1,13 @@
+rm(list = ls())
+
 library(tidyverse)
 library(ggpubr)
 library(ggthemes)
 
 calculate_npv_loss <- function(data = NULL,
-                               model_selected = "REMIND-MAgPIE 2.1-4.2",
+                               model_selected = NULL,
                                scenario_baseline = "EN_INDCi2100",
-                               scenario_delayed = "EN_INDCi2030_500f",
+                               scenario_delayed = "EN_INDCi2030_800f",
                                carbonintensity_g_per_kwh = 880,
                                kwh_per_exajoule = 277777777777.7778,
                                discount_rate = 0.05,
@@ -14,6 +16,12 @@ calculate_npv_loss <- function(data = NULL,
   
   # extract the region from the data argument supplied
   region <- unique(data$region)
+  
+  # exit prematurely if there is no data
+  if(nrow(data %>% filter(scenario %in% c(scenario_baseline, scenario_delayed) & model == model_selected)) == 0) {
+    paste("There is no data for region", region, "in the model", model_selected, ". Exiting prematurely") %>% print()
+    return(NULL)
+  }
   
   # subset the data and calculate revenues and cost
   df <- data %>% filter(scenario %in% c(scenario_baseline, scenario_delayed) & model == model_selected) %>%
@@ -90,8 +98,39 @@ calculate_npv_loss <- function(data = NULL,
            npv_baseline, npv_delayed, npv_change, everything())
   
   return(df_out)
-
 }
 
 # example
-read_csv(file.path("data", "output", "df_india.csv")) %>% calculate_npv_loss()
+# read_csv(file.path("data", "output", "ar6_database_coal", "IND.csv")) %>% calculate_npv_loss()
+# 
+# scenario_baseline = "EN_INDCi2100"
+# scenario_delayed = "EN_INDCi2030_800f"
+# carbonintensity_g_per_kwh = 880
+# kwh_per_exajoule = 277777777777.7778
+# discount_rate = 0.05
+# base_year = 2020
+# create_charts = T
+
+iso3_codes_available <- file.path("data", "output", "ar6_database_coal") %>% list.files() %>% str_remove("\\.csv$")
+
+df_input <- crossing(model_selected = c("IMAGE 3.0", "POLES ENGAGE", "REMIND-MAgPIE 2.1-4.2"),
+                     region = iso3_codes_available)
+
+wrapper_function <- function(model_selected = NULL,
+                             region = NULL) {
+  read_csv(file.path("data", "output", "ar6_database_coal", paste0(region, ".csv"))) %>%
+    calculate_npv_loss(model = model_selected, create_charts = F)
+}
+
+# for(jj in 1:nrow(df_input)) {
+#   paste(df_input$model_selected[jj], df_input$region[jj]) %>% print()
+#   wrapper_function(df_input$model_selected[jj], df_input$region[jj])
+# }
+
+df <- pmap_dfr(df_input, wrapper_function)
+
+df %>% ggplot(aes(region, model)) + geom_tile(aes(fill = npv_change_relative)) +
+  geom_label(aes(label = round(npv_change_relative, 2)))
+
+df %>% ggplot(aes(region, model)) + geom_tile(aes(fill = npv_change/10^12)) +
+  geom_label(aes(label = round(npv_change/10^12, 2)))
