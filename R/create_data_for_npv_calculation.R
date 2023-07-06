@@ -1,16 +1,22 @@
 rm(list = ls())
 
-library(reticulate)
 library(tidyverse)
 library(janitor)
 library(readxl)
-library(dtplyr)
 
 # map the directory of the AR6 database files - ADJUST THIS TO YOUR SYSTEM
 dir_database = "C:/Users/pwaidelich/Downloads/IIASA Scenario Database"
 
 # read in country-level results (based on downscaling) and filter to region of interest
 df_iso3 <- read_csv(file.path(dir_database, "AR6_Scenarios_Database_ISO3_v1.1.csv")) %>%
+  clean_names() %>% mutate(modelscenario = paste0(model, scenario))
+
+# read in R10 results
+df_r10 <- read_csv(file.path(dir_database, "AR6_Scenarios_Database_R10_regions_v1.1.csv")) %>%
+  clean_names() %>% mutate(modelscenario = paste0(model, scenario))
+
+# R6 results
+df_r6 <- read_csv(file.path(dir_database, "AR6_Scenarios_Database_R6_regions_v1.1.csv")) %>%
   clean_names() %>% mutate(modelscenario = paste0(model, scenario))
 
 # read in meta information from the IIASA Database
@@ -20,7 +26,7 @@ df_meta <-  read_excel(file.path(dir_database, "AR6_Scenarios_Database_metadata_
 
 # write a function to calculate NPV
 create_data_for_npv_calculation <- function(region_selected = NULL,
-                                            df_ar6_iso3 = NULL,
+                                            df_ar6 = NULL,
                                             df_ar6_meta = NULL,
                                             variables_to_extract = c("Secondary Energy|Electricity|Coal",
                                                                      "Price|Primary Energy|Coal",
@@ -34,7 +40,7 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
 ) {
   
   # check what key variables are available for which model-scenario pairing
-  df_variablecheck <- df_ar6_iso3 %>% filter(region == region_selected) %>% group_by(model, scenario, modelscenario, region) %>%
+  df_variablecheck <- df_ar6 %>% filter(region == region_selected) %>% group_by(model, scenario, modelscenario, region) %>%
     summarise(has_generation = "Secondary Energy|Electricity|Coal" %in% variable,
               has_price = "Price|Primary Energy|Coal" %in% variable,
               has_capacity = "Capacity|Electricity|Coal" %in% variable,
@@ -68,7 +74,7 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
  
   
   # create the actual database by interpolating
-  df <- df_ar6_iso3 %>% filter(modelscenario %in% modelscenario_used, region == region_selected) %>%
+  df <- df_ar6 %>% filter(modelscenario %in% modelscenario_used, region == region_selected) %>%
     # merge in relevant categories from the metadata
     left_join(df_ar6_meta %>% select(modelscenario, category, policy_category), by = "modelscenario") %>%
     # subset to the variables of interest
@@ -113,12 +119,26 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
 }
 
 # execute to test
-# create_data_for_npv_calculation(region_selected = "IND", df_ar6_iso3 = df_iso3, df_ar6_meta = df_meta)
+# create_data_for_npv_calculation(region_selected = "IND", df_ar6 = df_iso3, df_ar6_meta = df_meta)
 
 # do for all countries in the AR6 database - NOTE: this runs for several minutes
 map(unique(df_iso3$region), ~ create_data_for_npv_calculation(region_selected = .x,
-                                                              df_ar6_iso3 = df_iso3, 
+                                                              df_ar6 = df_iso3, 
                                                               df_ar6_meta = df_meta,
                                                               return_output = F,
                                                               create_charts = F))
+
+# do for all R10 regions in the AR6 database - NOTE: this runs for several minutes
+map(unique(df_r10$region), ~ create_data_for_npv_calculation(region_selected = .x,
+                                                              df_ar6 = df_r10, 
+                                                              df_ar6_meta = df_meta,
+                                                              return_output = F,
+                                                              create_charts = F))
+
+# do for all R10 regions in the AR6 database - NOTE: this runs for several minutes
+map(unique(df_r6$region), ~ create_data_for_npv_calculation(region_selected = .x,
+                                                             df_ar6 = df_r6, 
+                                                             df_ar6_meta = df_meta,
+                                                             return_output = F,
+                                                             create_charts = F))
 
