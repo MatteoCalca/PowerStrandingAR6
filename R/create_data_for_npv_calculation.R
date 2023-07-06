@@ -34,7 +34,8 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
                                                                      "OM Cost|Fixed|Electricity|Coal|w/o CCS",
                                                                      "Price|Carbon",
                                                                      "Primary Energy|Coal|Electricity",
-                                                                     "Price|Secondary Energy|Electricity"),
+                                                                     "Price|Secondary Energy|Electricity",
+                                                                     "Investment|Energy Supply|Electricity|Coal"),
                                             create_charts = T,
                                             return_output = T
 ) {
@@ -48,11 +49,12 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
               has_om = "OM Cost|Fixed|Electricity|Coal|w/o CCS" %in% variable,
               has_carbonprice = "Price|Carbon" %in% variable,
               has_electricityprice = "Price|Secondary Energy|Electricity" %in% variable,
+              has_investmentcost = "Investment|Energy Supply|Electricity|Coal" %in% variable,
               .groups = "drop") %>%
     mutate(is_vetted = modelscenario %in% df_ar6_meta$modelscenario)
   
   # define what model scenarios we use (due to data availabilibility & mapping)
-  modelscenario_used <- df_variablecheck %>% filter(has_generation & has_price & has_capacity & has_coaluse & has_om & has_carbonprice & has_electricityprice & is_vetted) %>%
+  modelscenario_used <- df_variablecheck %>% filter(has_generation & has_price & has_capacity & has_coaluse & has_om & has_carbonprice & has_electricityprice & has_investmentcost & is_vetted) %>%
     pull(modelscenario)
   
   # exit prematurely if there is no
@@ -67,8 +69,18 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
     df_variablecheck %>% filter(has_generation & has_price & has_capacity & has_coaluse & has_om & has_carbonprice & has_electricityprice) %>%
       count(model, is_vetted) %>%
       ggplot(aes(reorder(model, n), n)) + geom_col(aes(fill = is_vetted)) + coord_flip() +
-      labs(subtitle = "Model with coal price, generation, capacity, OM, electricity & carbon price", x = NULL, y = "# of model-scenario pairs in AR6 Database") +
-      theme(legend.position = "bottom")
+      labs(subtitle = "Models with required variables for coal NPV calculations",
+           x = NULL, y = "# of model-scenario pairs in AR6 Database",
+           fill = "Vetted?") +
+      theme_classic() +
+      theme(legend.position = "bottom",
+                  text=element_text(size=12, family = "sans"),
+                  axis.text = element_text(colour = "#595959"),
+                  axis.line = element_line(colour = "#B3B3B3"),
+                  axis.ticks = element_line(colour = "#B3B3B3"),
+                  plot.subtitle = element_text(colour = "#595959"),
+                  plot.title = element_text(face = "bold", colour = "#1A1A1A"))
+    ggsave(file.path("figures", "available_models_coal", paste0(region_selected, ".png")), width = 6, height = 6)
   }
 
  
@@ -119,7 +131,7 @@ create_data_for_npv_calculation <- function(region_selected = NULL,
 }
 
 # execute to test
-# create_data_for_npv_calculation(region_selected = "IND", df_ar6 = df_iso3, df_ar6_meta = df_meta)
+create_data_for_npv_calculation(region_selected = "IND", df_ar6 = df_iso3, df_ar6_meta = df_meta)
 
 # do for all countries in the AR6 database - NOTE: this runs for several minutes
 map(unique(df_iso3$region), ~ create_data_for_npv_calculation(region_selected = .x,
@@ -142,3 +154,22 @@ map(unique(df_r6$region), ~ create_data_for_npv_calculation(region_selected = .x
                                                              return_output = F,
                                                              create_charts = F))
 
+df_iso3 %>% filter(region == "IND",
+                   model == "REMIND-MAgPIE 2.1-4.2",
+                   scenario %in% c("EN_INDCi2100", "EN_INDCi2030_800f")) %>%
+  filter(variable %in% c("Secondary Energy|Electricity|Coal|w/ CCS", "Secondary Energy|Electricity|Coal|w/o CCS")) %>%
+  pivot_longer(cols = starts_with("x"), names_to = "year") %>%
+  mutate(year = str_remove(year, "^x") %>% as.integer()) %>%
+  group_by(scenario, year) %>%
+  mutate(value = value/sum(value)) %>%
+  ggplot(aes(year, value)) + geom_line(aes(colour = variable, linetype = scenario))
+
+df_iso3 %>% filter(variable == "Investment|Energy Supply|Electricity|Coal") %>% pull(unit)
+
+df_iso3 %>% filter(region == "IND",
+                   model == "IMAGE 3.0",
+                   scenario %in% c("EN_INDCi2100", "EN_INDCi2030_800f")) %>%
+  filter(variable %in% c("Secondary Energy|Electricity|Coal|w/ CCS", "Secondary Energy|Electricity|Coal|w/o CCS")) %>%
+  pivot_longer(cols = starts_with("x"), names_to = "year") %>%
+  mutate(year = str_remove(year, "^x") %>% as.integer()) %>%
+  ggplot(aes(year, value)) + geom_line(aes(colour = variable)) + facet_wrap(~ scenario)
